@@ -7,6 +7,8 @@ from bs4 import BeautifulSoup
 import requests
 import json
 import secrets # file that contains your API key
+#NPS_INDEX_CACHE = {}
+STATE_CACHE = {}
 SITE_CACHE = {}
 n1= '\n'
 
@@ -54,18 +56,18 @@ def build_state_url_dict():
         key is a state name and value is the url
         e.g. {'michigan':'https://www.nps.gov/state/mi/index.htm', ...}
     '''
-    
+    #if 'nevada' in NPS_INDEX_CACHE.keys():
+    #    return NPS_INDEX_CACHE
+    #sorry I couldn't get this one to cache for some reason
     BASE_URL = 'https://www.nps.gov'
-
     INDEX_PATH = '/index.htm'
     index_page_url = BASE_URL + INDEX_PATH
 
     response= requests.get(index_page_url)
-
     soup = BeautifulSoup(response.text, 'html.parser')
 
     state_parent = soup.find('ul', class_='dropdown-menu SearchBar-keywordSearch')
-#   print(state_parent)
+#      print(state_parent)
     state_lis = state_parent.find_all('li', recursive=False)
     state_sites = {}
     for state in state_lis:
@@ -73,6 +75,7 @@ def build_state_url_dict():
         state_tag = state.find('a')
         state_url = state_tag['href']
         state_sites[state_name] = BASE_URL + state_url
+        #NPS_INDEX_CACHE = state_sites
     return state_sites
 
 
@@ -89,9 +92,6 @@ def get_site_instance(site_url):
     instance
         a national site instance
     '''
-    #TODO: MAKE SURE NONE OPTIONS ARE ACCOUNTED FOR
-    #BASE_URL = 'https://www.nps.gov'
-    #index_page_url = BASE_URL + site_url
     response= requests.get(site_url)
     soup = BeautifulSoup(response.text, 'html.parser')
 
@@ -102,7 +102,10 @@ def get_site_instance(site_url):
     site_name = name_block.text
 
     category_block = header_parent.find('span', class_='Hero-designation')
-    site_category = category_block.text.strip()
+    if category_block.text.strip() != '':
+        site_category = category_block.text.strip()
+    else:
+        site_category = "Other"
 
     footer_parent = soup.find('div', class_='vcard')
 
@@ -113,11 +116,18 @@ def get_site_instance(site_url):
     for piece in address_pieces:
         bit = piece.find_all('span')
         for b in bit:
-            #print(b.text)
             address_bits.append(b.text)
-    #print(address_bits)
-    site_address = address_bits[0] + ", " + address_bits[1]
-    site_zip = address_bits[2][0:5]
+    #accounting for Death Valley and other weirdly formatted addresses
+    if len(address_bits) < 2:
+        for piece in address_pieces:
+            address_bits.append(piece.text)
+    #gosh darnit Yosemite y don't you have an address
+    if len(address_bits) < 2:
+        site_address = "no address"
+        site_zip = "no zipcode"
+    else:
+        site_address = address_bits[0] + ", " + address_bits[1]
+        site_zip = address_bits[2][0:5]
 
     #phone
     phone_block = footer_parent.find('span', class_='tel')
@@ -138,27 +148,34 @@ def get_sites_for_state(state_url):
     list
         a list of national site instances
     '''
-    response = requests.get(state_url)
-    state_soup = BeautifulSoup(response.text, 'html.parser')
+    if state_url in STATE_CACHE.keys():
+        print("Using Cache")
+        return STATE_CACHE[state_url]
+    
+    else:
+        print("Fetching")
+        response = requests.get(state_url)
+        state_soup = BeautifulSoup(response.text, 'html.parser')
 
-    site_parent = state_soup.find('ul', id='list_parks')
-    site_lis = site_parent.find_all('li', recursive=False)
-    #print(site_lis[0])
-    BASE_URL = 'https://www.nps.gov'
-    INDEX_PATH = 'index.htm'
-    state_site_urls = []
-    for site in site_lis:
-        site_tag = site.find('a')
-        site_url = site_tag['href']
-        state_site_urls.append(BASE_URL+ site_url + INDEX_PATH)
+        site_parent = state_soup.find('ul', id='list_parks')
+        site_lis = site_parent.find_all('li', recursive=False)
+        #print(site_lis[0])
+        BASE_URL = 'https://www.nps.gov'
+        INDEX_PATH = 'index.htm'
+        state_site_urls = []
+        for site in site_lis:
+            site_tag = site.find('a')
+            site_url = site_tag['href']
+            state_site_urls.append(BASE_URL+ site_url + INDEX_PATH)
 
-    state_national_sites = []
-    for url in state_site_urls:
-        spot = state_site_urls.index(url) + 1
-        park = get_site_instance(url)
-        #print('[',spot,']',park.info())
-        state_national_sites.append([spot, park.info(), park])
-    return state_national_sites
+        state_national_sites = []
+        for url in state_site_urls:
+            spot = state_site_urls.index(url) + 1
+            park = get_site_instance(url)
+            #print('[',spot,']',park.info())
+            state_national_sites.append([spot, park.info(), park])
+        STATE_CACHE[state_url] = state_national_sites
+        return state_national_sites
 
 
 def get_nearby_places(site_object):
@@ -216,13 +233,12 @@ Output Format
                 place_city = 'no city'
             places_list.append(f'-{place_name} ({place_category}): {place_streetaddress}, {place_city}')
             SITE_CACHE[site_object.name] = places_list
-            #return f'-{place_name} ({place_category}): {place_streetaddress}, {place_city}{n1}'
         return places_list
 
 state_nps_sites = build_state_url_dict()
 
 while True:
-    state_choice = input("1--Enter a US State to see all of its National Sites! To leave, type 'exit'. ")
+    state_choice = input("Enter a US State to see all of its National Sites! To leave, type 'exit'. ")
     formatted_state_choice = state_choice.lower().strip()
     if type(state_choice) == str:
         if formatted_state_choice in state_nps_sites:
@@ -233,7 +249,7 @@ while True:
             for site in national_site_list:
                 print(f'[{site[0]}] {site[1]}')
             while True:
-                site_choice = input("2--Choose a site number to see locations near the site. Type 'back' to see another state or 'exit' to leave. ")
+                site_choice = input("Choose a site number to see locations near the site. Type 'back' to see another state or 'exit' to leave. ")
                 if site_choice == 'exit':
                     break
                 elif site_choice == 'back':
@@ -247,30 +263,15 @@ while True:
                         print(place)
                     break
                 else:
-                    print("4--Please enter a valid site number.")
+                    print("Please enter a valid site number.")
                     continue
             
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-###DO NOT TOUCH ME I WORK        
         elif formatted_state_choice =='exit':
             break
         else:
-            print("6--Please enter a valid US state name or 'exit' to leave. ")
+            print("Please enter a valid US state name or 'exit' to leave. ")
     elif type(state_choice) != str:
-        print("7--Please enter a valid US state name or 'exit' to leave. ")
+        print("Please enter a valid US state name or 'exit' to leave. ")
         break
 
 if __name__ == "__main__":

@@ -105,12 +105,12 @@ while True:
 """
 
 
-response2 = requests.get('https://www.nps.gov/state/wa/index.htm')
+response2 = requests.get('https://www.nps.gov/state/ca/index.htm')
 
 state_soup = BeautifulSoup(response2.text, 'html.parser')
 
 site_parent = state_soup.find('ul', id='list_parks')
-#print(state_parent)
+#print(site_parent)
 site_lis = site_parent.find_all('li', recursive=False)
 #print(site_lis[0])
 BASE_URL = 'https://www.nps.gov'
@@ -153,37 +153,97 @@ This stunning landscape at the gateway to Puget Sound, with its rich farmland an
 </div>
 </div>
 """
-SITE_CACHE = {}
-site_object = NationalSite('national park', "North Cascades", "Sedro-Wooley, WA", "98294", None)
-mapquest_base_url = 'http://www.mapquestapi.com/search/v2/radius'
-secrets.consumer_key
-query_address = site_object.address.replace(" ", "+")
-n1= '\n'
+def get_site_instance(site_url):
+    '''Make an instances from a national site URL.
+    
+    Parameters
+    ----------
+    site_url: string
+        The URL for a national site page in nps.gov
+    
+    Returns
+    -------
+    instance
+        a national site instance
+    '''
+    #TODO: MAKE SURE NONE OPTIONS ARE ACCOUNTED FOR
+    #BASE_URL = 'https://www.nps.gov'
+    #index_page_url = BASE_URL + site_url
+    response= requests.get(site_url)
+    soup = BeautifulSoup(response.text, 'html.parser')
 
-if site_object.name in SITE_CACHE.keys():
-    print(SITE_CACHE[site_object.name])
-else:
-    response = requests.get(f'http://www.mapquestapi.com/search/v2/radius?origin={query_address}+{site_object.zipcode}&radius=10&maxMatches=10&ambiguities=ignore&outFormat=json&key={secrets.consumer_key}')
-    json_str = response.text
-    query_result = json.loads(json_str)
-    #print(query_result)
+    header_parent = soup.find('div', class_='Hero-titleContainer clearfix')
+    #print(header_parent)
 
-    nearby_places = query_result['searchResults']
-    SITE_CACHE[site_object.name] = []
-    for place in nearby_places:
-        place_name = place['name']
-        if place['fields']['group_sic_code_name_ext'] != '':
-            place_category = place['fields']['group_sic_code_name_ext']
-        else:
-            place_category = 'no category'
-        if place['fields']['address'] != '': 
-            place_streetaddress = place['fields']['address']
-        else:
-            place_streetaddress = 'no address'
-        if place['fields']['city'] != '':
-            place_city = place['fields']['city']
-        else:
-            place_city = 'no city'
-    #print(place)
-        SITE_CACHE[site_object.name].append(f'-{place_name} ({place_category}): {place_streetaddress}, {place_city}{n1}')
-        print(f'-{place_name} ({place_category}): {place_streetaddress}, {place_city}{n1}')
+    name_block = header_parent.find('a')
+    site_name = name_block.text
+
+    category_block = header_parent.find('span', class_='Hero-designation')
+    if category_block.text.strip() != '':
+        site_category = category_block.text.strip()
+    else:
+        site_category = "Other"
+
+    footer_parent = soup.find('div', class_='vcard')
+    print(footer_parent)
+    #address:
+    address_block = footer_parent.find('p')
+    address_pieces = address_block.find_all('span')
+    print(address_pieces)
+    address_bits = []
+    for piece in address_pieces:
+        bit = piece.find_all('span')
+        for b in bit:
+            print(b.text)
+            address_bits.append(b.text)
+    print(len(address_bits))
+    site_address = address_bits[0] + ", " + address_bits[1]
+    site_zip = address_bits[2][0:5]
+
+    #phone
+    phone_block = footer_parent.find('span', class_='tel')
+    site_phone = phone_block.text
+    print(site_phone)
+
+    return NationalSite(site_category, site_name, site_address, site_zip, site_phone)
+
+Channel_Islands = get_site_instance('https://www.nps.gov/chis/index.htm')
+print(Channel_Islands.info())
+print(state_nps_sites['california'])
+def get_sites_for_state(state_url):
+    '''Make a list of national site instances from a state URL.
+    
+    Parameters
+    ----------
+    state_url: string
+        The URL for a state page in nps.gov
+    
+    Returns
+    -------
+    list
+        a list of national site instances
+    '''
+    response = requests.get(state_url)
+    state_soup = BeautifulSoup(response.text, 'html.parser')
+
+    site_parent = state_soup.find('ul', id='list_parks')
+    site_lis = site_parent.find_all('li', recursive=False)
+    #print(site_lis[0])
+    BASE_URL = 'https://www.nps.gov'
+    INDEX_PATH = 'index.htm'
+    state_site_urls = []
+    for site in site_lis:
+        site_tag = site.find('a')
+        site_url = site_tag['href']
+        state_site_urls.append(BASE_URL+ site_url + INDEX_PATH)
+
+    state_national_sites = []
+    for url in state_site_urls:
+        spot = state_site_urls.index(url) + 1
+        park = get_site_instance(url)
+        #print('[',spot,']',park.info())
+        state_national_sites.append([spot, park.info(), park])
+    return state_national_sites
+
+#cali_sites = get_sites_for_state('https://www.nps.gov/state/ca/index.htm')
+#print(cali_sites)
